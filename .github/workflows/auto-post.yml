@@ -1,0 +1,46 @@
+name: 🤖 Auto Post LinkedIn Generator
+
+on:
+  schedule:
+    # Exécution automatique à 9h et 14h UTC (10h et 15h heure française)
+    - cron: '0 8 * * *'  # 9h UTC = 10h France
+    - cron: '0 13 * * *' # 14h UTC = 15h France
+  workflow_dispatch: # Permet d'exécuter manuellement
+
+jobs:
+  generate-post:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: 📥 Checkout code
+      uses: actions/checkout@v4
+      
+    - name: 📦 Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        
+    - name: 📦 Install dependencies
+      run: |
+        cd gemini_test_standalone
+        npm install
+        
+    - name: 🤖 Generate LinkedIn Post
+      env:
+        GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        UNSPLASH_ACCESS_KEY: ${{ secrets.UNSPLASH_ACCESS_KEY }}
+      run: |
+        cd gemini_test_standalone
+        node telegram_bot.js --auto
+        
+    - name: 📊 Post execution summary
+      if: always()
+      run: |
+        echo "🤖 LinkedIn Post Generator - Execution Summary"
+        echo "⏰ Time: $(date)"
+        echo "📅 Date: $(date +%Y-%m-%d)"
+        echo "🕐 Hour: $(date +%H:%M)"
+        echo "✅ Job completed"

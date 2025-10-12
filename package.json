@@ -1,0 +1,17 @@
+{
+  "name": "gemini-test-standalone",
+  "version": "1.0.0",
+  "description": "Test Gemini 2.5 Flash standalone avec Telegram",
+  "main": "test_gemini_complete.js",
+  "scripts": {
+    "test": "node test_gemini_complete.js",
+    "start": "node test_gemini_complete.js"
+  },
+  "dependencies": {
+    "sqlite3": "^5.1.6",
+    "node-fetch": "^2.7.0"
+  },
+  "keywords": ["gemini", "telegram", "linkedin", "ai", "posts"],
+  "author": "Ztalali",
+  "license": "MIT"
+}
