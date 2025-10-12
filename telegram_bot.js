@@ -295,6 +295,30 @@ async function processMessage(update) {
   }
 }
 
+// Fonction pour démarrer le polling
+async function startPolling() {
+  let offset = 0;
+  
+  while (true) {
+    try {
+      const url = `${BOT_CONFIG.baseUrl}${BOT_CONFIG.token}/getUpdates?offset=${offset}&timeout=30`;
+      
+      const response = await fetch(url);
+      const data = await response.json();
+      
+      if (data.ok && data.result.length > 0) {
+        for (const update of data.result) {
+          await processMessage(update);
+          offset = update.update_id + 1;
+        }
+      }
+    } catch (error) {
+      console.error('❌ Erreur polling:', error.message);
+      await new Promise(resolve => setTimeout(resolve, 5000)); // Attendre 5s avant de réessayer
+    }
+  }
+}
+
 // Fonction principale du bot
 async function startBot() {
   console.log('🤖 Démarrage du Bot Telegram LinkedIn Post Generator...');
@@ -312,7 +336,10 @@ async function startBot() {
   // Envoyer message de démarrage
   await sendMessageWithKeyboard(BOT_CONFIG.chatId, '🚀 <b>Bot LinkedIn Post Generator démarré !</b>\n\n🤖 Prêt à générer des posts avec Gemini 2.5 Flash.', generateKeyboard);
   
-  console.log('✅ Bot prêt ! En attente de messages...');
+  console.log('✅ Bot prêt ! Démarrage du polling...');
+  
+  // Démarrer le polling
+  startPolling();
 }
 
 // Fonction pour générer un post automatique (pour GitHub Actions)
