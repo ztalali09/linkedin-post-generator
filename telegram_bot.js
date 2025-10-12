@@ -15,6 +15,9 @@ const BOT_CONFIG = {
   baseUrl: 'https://api.telegram.org/bot'
 };
 
+// Stockage du dernier post généré pour changer la photo
+let lastGeneratedPost = null;
+
 // Clavier inline avec boutons
 const generateKeyboard = {
   inline_keyboard: [
@@ -27,6 +30,38 @@ const generateKeyboard = {
     [
       {
         text: '🚀 Déclencher GitHub Actions',
+        callback_data: 'trigger_github'
+      }
+    ],
+    [
+      {
+        text: '📊 Statistiques',
+        callback_data: 'show_stats'
+      },
+      {
+        text: 'ℹ️ Aide',
+        callback_data: 'show_help'
+      }
+    ]
+  ]
+};
+
+// Clavier avec bouton "Change Photo" (affiché après génération d'un post)
+const postGeneratedKeyboard = {
+  inline_keyboard: [
+    [
+      {
+        text: '🔄 Changer la Photo',
+        callback_data: 'change_photo'
+      }
+    ],
+    [
+      {
+        text: '🤖 Nouveau Post',
+        callback_data: 'generate_post'
+      },
+      {
+        text: '🚀 GitHub Actions',
         callback_data: 'trigger_github'
       }
     ],
@@ -158,11 +193,14 @@ async function generatePost(chatId) {
       }
     }
     
+    // Stocker le post pour pouvoir changer la photo
+    lastGeneratedPost = post;
+    
     // Envoyer le post avec image si disponible
     if (post.json.image && post.json.image.url) {
       await sendPhotoWithCaption(chatId, post.json.image.url, post.json.content);
     } else {
-      await sendMessageWithKeyboard(chatId, post.json.content, generateKeyboard);
+      await sendMessageWithKeyboard(chatId, post.json.content, postGeneratedKeyboard);
     }
     
     // Envoyer les statistiques
@@ -173,7 +211,7 @@ async function generatePost(chatId) {
       `• Image: ${post.json.image ? '✅' : '❌'}\n\n` +
       `🎯 <b>Prêt à publier sur LinkedIn !</b>`;
     
-    await sendMessageWithKeyboard(chatId, stats, generateKeyboard);
+    await sendMessageWithKeyboard(chatId, stats, postGeneratedKeyboard);
     
   } catch (error) {
     console.error('Erreur génération post:', error);
@@ -222,11 +260,14 @@ async function triggerGitHubAction(chatId) {
       return;
     }
     
+    // Stocker le post pour pouvoir changer la photo
+    lastGeneratedPost = post;
+    
     // Envoyer le post avec image si disponible
     if (post.json.image && post.json.image.url) {
       await sendPhotoWithCaption(chatId, post.json.image.url, post.json.content);
     } else {
-      await sendMessageWithKeyboard(chatId, post.json.content, generateKeyboard);
+      await sendMessageWithKeyboard(chatId, post.json.content, postGeneratedKeyboard);
     }
     
     // Envoyer les statistiques
@@ -237,11 +278,55 @@ async function triggerGitHubAction(chatId) {
       `• Image: ${post.json.image ? '✅' : '❌'}\n\n` +
       `🎯 <b>Prêt à publier sur LinkedIn !</b>`;
     
-    await sendMessageWithKeyboard(chatId, stats, generateKeyboard);
+    await sendMessageWithKeyboard(chatId, stats, postGeneratedKeyboard);
     
   } catch (error) {
     console.error('Erreur génération post:', error);
     await sendMessageWithKeyboard(chatId, `❌ Erreur: ${error.message}\n\nVérifiez la configuration.`, generateKeyboard);
+  }
+}
+
+// Fonction pour changer la photo du dernier post
+async function changePhoto(chatId) {
+  try {
+    if (!lastGeneratedPost) {
+      await sendMessageWithKeyboard(chatId, '❌ <b>Aucun post récent trouvé !</b>\n\nGénérez d\'abord un post avec les boutons ci-dessus.', generateKeyboard);
+      return;
+    }
+    
+    await sendMessageWithKeyboard(chatId, '🔄 <b>Recherche d\'une nouvelle image...</b>\n\n⏳ Utilisation des mêmes mots-clés...', null);
+    
+    // Utiliser le système d'images pour trouver une nouvelle image
+    const { findRelevantImage } = require('./image_system.js');
+    
+    // Extraire les mots-clés du post existant
+    const postType = lastGeneratedPost.json.type;
+    const content = lastGeneratedPost.json.content;
+    const geminiSuggestions = lastGeneratedPost.json.imageSuggestions || [];
+    
+    console.log('🔄 Recherche d\'une nouvelle image avec les mêmes mots-clés...');
+    
+    // Chercher une nouvelle image avec les mêmes paramètres
+    const newImageData = await findRelevantImage(postType, content, geminiSuggestions);
+    
+    if (newImageData && newImageData.url) {
+      // Envoyer le même contenu avec la nouvelle image
+      await sendPhotoWithCaption(chatId, newImageData.url, lastGeneratedPost.json.content);
+      
+      const message = `✅ <b>Nouvelle image trouvée !</b>\n\n` +
+        `🖼️ <b>Description:</b> ${newImageData.description}\n` +
+        `👤 <b>Auteur:</b> ${newImageData.author}\n` +
+        `🔗 <b>Source:</b> Unsplash\n\n` +
+        `💡 <b>Même contenu, nouvelle image !</b>`;
+      
+      await sendMessageWithKeyboard(chatId, message, postGeneratedKeyboard);
+    } else {
+      await sendMessageWithKeyboard(chatId, '❌ <b>Aucune nouvelle image trouvée !</b>\n\nEssayez de générer un nouveau post.', postGeneratedKeyboard);
+    }
+    
+  } catch (error) {
+    console.error('Erreur changement photo:', error);
+    await sendMessageWithKeyboard(chatId, `❌ <b>Erreur lors du changement de photo:</b>\n\n${error.message}`, postGeneratedKeyboard);
   }
 }
 
@@ -260,6 +345,7 @@ async function showHelp(chatId) {
     `📱 <b>Utilisation:</b>\n` +
     `• <b>🤖 Générer un Post:</b> Crée un post immédiatement (local)\n` +
     `• <b>🚀 Déclencher GitHub Actions:</b> Utilise le code déployé sur GitHub\n` +
+    `• <b>🔄 Changer la Photo:</b> Nouvelle image pour le même contenu\n` +
     `• Le post est prêt à copier-coller sur LinkedIn\n` +
     `• Images automatiquement associées\n\n` +
     `🚀 <b>Automatisation:</b>\n` +
@@ -301,6 +387,9 @@ async function processMessage(update) {
         break;
       case 'trigger_github':
         await triggerGitHubAction(chatId);
+        break;
+      case 'change_photo':
+        await changePhoto(chatId);
         break;
       case 'show_stats':
         await showStats(chatId);
