@@ -297,7 +297,7 @@ async function changePhoto(chatId) {
     await sendMessageWithKeyboard(chatId, '🔄 <b>Recherche d\'une nouvelle image...</b>\n\n⏳ Utilisation des mêmes mots-clés...', null);
     
     // Utiliser le système d'images pour trouver une nouvelle image
-    const { findRelevantImage } = require('./image_system.js');
+    const { findImageForPost } = require('./image_system.js');
     
     // Extraire les mots-clés du post existant
     const postType = lastGeneratedPost.json.type;
@@ -307,7 +307,7 @@ async function changePhoto(chatId) {
     console.log('🔄 Recherche d\'une nouvelle image avec les mêmes mots-clés...');
     
     // Chercher une nouvelle image avec les mêmes paramètres
-    const newImageData = await findRelevantImage(postType, content, geminiSuggestions);
+    const newImageData = await findImageForPost(postType, content, [], geminiSuggestions);
     
     if (newImageData && newImageData.url) {
       // Envoyer le même contenu avec la nouvelle image
