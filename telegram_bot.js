@@ -209,22 +209,45 @@ async function showStats(chatId) {
 // Fonction pour déclencher GitHub Actions
 async function triggerGitHubAction(chatId) {
   try {
-    await sendMessageWithKeyboard(chatId, '🚀 <b>Déclenchement GitHub Actions...</b>\n\n⏳ Veuillez patienter...', null);
+    await sendMessageWithKeyboard(chatId, '🚀 <b>Déclenchement GitHub Actions...</b>\n\n⏳ Génération du post via GitHub...', null);
     
-    // Simuler le déclenchement (en réalité, vous devriez utiliser l'API GitHub)
-    await new Promise(resolve => setTimeout(resolve, 2000));
+    // Déclencher le workflow GitHub Actions
+    const githubToken = process.env.GITHUB_TOKEN;
+    if (!githubToken) {
+      await sendMessageWithKeyboard(chatId, '❌ <b>GITHUB_TOKEN manquant !</b>\n\nConfigurez le token GitHub pour déclencher les workflows.', generateKeyboard);
+      return;
+    }
     
-    const message = `✅ <b>GitHub Actions déclenché !</b>\n\n` +
-      `🔗 <b>Lien du workflow:</b>\n` +
-      `https://github.com/ztalali09/linkedin-post-generator/actions\n\n` +
-      `⏰ <b>Le post sera généré et envoyé automatiquement</b>\n` +
-      `📊 <b>Vous pouvez suivre le progrès sur GitHub Actions</b>\n\n` +
-      `💡 <b>Note:</b> Le workflow utilise le code déployé sur GitHub`;
+    const workflowUrl = 'https://api.github.com/repos/ztalali09/linkedin-post-generator/actions/workflows/auto-post.yml/dispatches';
     
-    await sendMessageWithKeyboard(chatId, message, generateKeyboard);
+    const response = await fetch(workflowUrl, {
+      method: 'POST',
+      headers: {
+        'Authorization': `token ${githubToken}`,
+        'Accept': 'application/vnd.github.v3+json',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        ref: 'main'
+      })
+    });
+    
+    if (response.ok) {
+      const message = `✅ <b>GitHub Actions déclenché avec succès !</b>\n\n` +
+        `🔗 <b>Lien du workflow:</b>\n` +
+        `https://github.com/ztalali09/linkedin-post-generator/actions\n\n` +
+        `⏰ <b>Le post sera généré et envoyé automatiquement</b>\n` +
+        `📊 <b>Vous pouvez suivre le progrès sur GitHub Actions</b>\n\n` +
+        `💡 <b>Note:</b> Le workflow utilise le code déployé sur GitHub`;
+      
+      await sendMessageWithKeyboard(chatId, message, generateKeyboard);
+    } else {
+      const errorText = await response.text();
+      await sendMessageWithKeyboard(chatId, `❌ <b>Erreur déclenchement GitHub Actions:</b>\n\n${errorText}`, generateKeyboard);
+    }
     
   } catch (error) {
-    await sendMessageWithKeyboard(chatId, `❌ Erreur déclenchement GitHub Actions: ${error.message}`, generateKeyboard);
+    await sendMessageWithKeyboard(chatId, `❌ <b>Erreur déclenchement GitHub Actions:</b>\n\n${error.message}`, generateKeyboard);
   }
 }
 
