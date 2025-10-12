@@ -1,0 +1,30 @@
+# Fichiers sensibles
+.env
+*.env
+.env.local
+.env.production
+
+# Base de données locale
+posts_history.db
+*.db
+
+# Logs
+*.log
+logs/
+
+# Dependencies
+node_modules/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Temporary files
+tmp/
+temp/
