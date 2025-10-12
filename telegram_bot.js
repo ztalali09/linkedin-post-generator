@@ -8,6 +8,53 @@
 const { generateAuthenticPost } = require('./generate_authentic_varied_posts.js');
 const fetch = require('node-fetch');
 
+// Fonction pour trouver une image alternative (pour changement de photo)
+async function findAlternativeImage(postType, content, geminiSuggestions = []) {
+  try {
+    const { generateSmartQueries, searchUnsplash } = require('./image_system.js');
+    
+    // Générer les requêtes intelligentes
+    const queries = generateSmartQueries(postType, content, geminiSuggestions);
+    
+    console.log(`🔄 Recherche d'image alternative avec ${queries.length} requêtes...`);
+    
+    // Essayer chaque requête et collecter toutes les images
+    const allImages = [];
+    
+    for (let i = 0; i < queries.length; i++) {
+      const query = queries[i];
+      console.log(`   🔍 Requête ${i + 1}/${queries.length}: "${query.substring(0, 50)}..."`);
+      
+      const result = await searchUnsplash(query);
+      
+      if (result && result.images.length > 0) {
+        console.log(`   ✅ ${result.images.length} image(s) trouvée(s) pour cette requête`);
+        allImages.push(...result.images);
+      }
+    }
+    
+    if (allImages.length > 0) {
+      // Choisir une image aléatoire parmi toutes les options
+      const randomIndex = Math.floor(Math.random() * allImages.length);
+      const selectedImage = allImages[randomIndex];
+      
+      console.log(`   🎯 Image sélectionnée (${randomIndex + 1}/${allImages.length})`);
+      
+      return {
+        url: selectedImage.url,
+        description: selectedImage.description,
+        author: selectedImage.author,
+        source: 'unsplash'
+      };
+    }
+    
+    return null;
+  } catch (error) {
+    console.error('Erreur recherche image alternative:', error);
+    return null;
+  }
+}
+
 // Configuration du bot Telegram
 const BOT_CONFIG = {
   token: process.env.TELEGRAM_BOT_TOKEN || '8432791411:AAGRitXf4h7FOZNTvOJD08vuNGcByV3fFfA',
@@ -307,7 +354,8 @@ async function changePhoto(chatId) {
     console.log('🔄 Recherche d\'une nouvelle image avec les mêmes mots-clés...');
     
     // Chercher une nouvelle image avec les mêmes paramètres
-    const newImageData = await findImageForPost(postType, content, [], geminiSuggestions);
+    // Utiliser une fonction spéciale pour le changement de photo
+    const newImageData = await findAlternativeImage(postType, content, geminiSuggestions);
     
     if (newImageData && newImageData.url) {
       // Envoyer le même contenu avec la nouvelle image
