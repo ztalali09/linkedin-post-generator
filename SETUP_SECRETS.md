@@ -5,7 +5,7 @@
 Vous devez configurer ces secrets dans votre repository GitHub :
 
 ### 1. Aller dans les paramètres du repository
-- Allez sur : https://github.com/ztalali09/linkedin-post-generator
+- Allez sur : https://github.com/ztalali09/linkedin-post-generator (repository privé)
 - Cliquez sur **Settings** (onglet en haut)
 - Dans le menu de gauche, cliquez sur **Secrets and variables** → **Actions**
 
