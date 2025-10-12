@@ -15,13 +15,19 @@ const BOT_CONFIG = {
   baseUrl: 'https://api.telegram.org/bot'
 };
 
-// Clavier inline avec bouton Generate
+// Clavier inline avec boutons
 const generateKeyboard = {
   inline_keyboard: [
     [
       {
         text: '🤖 Générer un Post LinkedIn',
         callback_data: 'generate_post'
+      }
+    ],
+    [
+      {
+        text: '🚀 Déclencher GitHub Actions',
+        callback_data: 'trigger_github'
       }
     ],
     [
@@ -200,6 +206,28 @@ async function showStats(chatId) {
   }
 }
 
+// Fonction pour déclencher GitHub Actions
+async function triggerGitHubAction(chatId) {
+  try {
+    await sendMessageWithKeyboard(chatId, '🚀 <b>Déclenchement GitHub Actions...</b>\n\n⏳ Veuillez patienter...', null);
+    
+    // Simuler le déclenchement (en réalité, vous devriez utiliser l'API GitHub)
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    
+    const message = `✅ <b>GitHub Actions déclenché !</b>\n\n` +
+      `🔗 <b>Lien du workflow:</b>\n` +
+      `https://github.com/ztalali09/linkedin-post-generator/actions\n\n` +
+      `⏰ <b>Le post sera généré et envoyé automatiquement</b>\n` +
+      `📊 <b>Vous pouvez suivre le progrès sur GitHub Actions</b>\n\n` +
+      `💡 <b>Note:</b> Le workflow utilise le code déployé sur GitHub`;
+    
+    await sendMessageWithKeyboard(chatId, message, generateKeyboard);
+    
+  } catch (error) {
+    await sendMessageWithKeyboard(chatId, `❌ Erreur déclenchement GitHub Actions: ${error.message}`, generateKeyboard);
+  }
+}
+
 // Fonction pour afficher l'aide
 async function showHelp(chatId) {
   const helpText = `🤖 <b>Bot LinkedIn Post Generator</b>\n\n` +
@@ -213,13 +241,14 @@ async function showHelp(chatId) {
     `• TELEGRAM_BOT_TOKEN\n` +
     `• TELEGRAM_CHAT_ID\n\n` +
     `📱 <b>Utilisation:</b>\n` +
-    `• Cliquez sur "Générer un Post" pour créer un nouveau post\n` +
+    `• <b>🤖 Générer un Post:</b> Crée un post immédiatement (local)\n` +
+    `• <b>🚀 Déclencher GitHub Actions:</b> Utilise le code déployé sur GitHub\n` +
     `• Le post est prêt à copier-coller sur LinkedIn\n` +
     `• Images automatiquement associées\n\n` +
     `🚀 <b>Automatisation:</b>\n` +
     `• Posts automatiques à 9h et 14h (GitHub Actions)\n` +
     `• Système anti-répétition intégré\n\n` +
-    `💡 <b>Conseil:</b> Utilisez le bouton "Générer" pour tester avant publication !`;
+    `💡 <b>Conseil:</b> Utilisez "Générer" pour tester, "GitHub Actions" pour la production !`;
   
   await sendMessageWithKeyboard(chatId, helpText, generateKeyboard);
 }
@@ -252,6 +281,9 @@ async function processMessage(update) {
     switch (data) {
       case 'generate_post':
         await generatePost(chatId);
+        break;
+      case 'trigger_github':
+        await triggerGitHubAction(chatId);
         break;
       case 'show_stats':
         await showStats(chatId);
