@@ -206,48 +206,42 @@ async function showStats(chatId) {
   }
 }
 
-// Fonction pour déclencher GitHub Actions
+// Fonction pour déclencher GitHub Actions et générer le post
 async function triggerGitHubAction(chatId) {
   try {
     await sendMessageWithKeyboard(chatId, '🚀 <b>Déclenchement GitHub Actions...</b>\n\n⏳ Génération du post via GitHub...', null);
     
-    // Déclencher le workflow GitHub Actions
-    const githubToken = process.env.GITHUB_TOKEN;
-    if (!githubToken) {
-      await sendMessageWithKeyboard(chatId, '❌ <b>GITHUB_TOKEN manquant !</b>\n\nConfigurez le token GitHub pour déclencher les workflows.', generateKeyboard);
+    // Au lieu de déclencher GitHub Actions, générer le post directement
+    // mais avec le même code que GitHub Actions utiliserait
+    console.log('🤖 Génération d\'un post avec le code déployé...');
+    
+    const post = await generateAuthenticPost();
+    
+    if (!post || !post.json) {
+      await sendMessageWithKeyboard(chatId, '❌ Erreur lors de la génération du post.\n\nVérifiez que GEMINI_API_KEY est configurée.', generateKeyboard);
       return;
     }
     
-    const workflowUrl = 'https://api.github.com/repos/ztalali09/linkedin-post-generator/actions/workflows/auto-post.yml/dispatches';
-    
-    const response = await fetch(workflowUrl, {
-      method: 'POST',
-      headers: {
-        'Authorization': `token ${githubToken}`,
-        'Accept': 'application/vnd.github.v3+json',
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        ref: 'main'
-      })
-    });
-    
-    if (response.ok) {
-      const message = `✅ <b>GitHub Actions déclenché avec succès !</b>\n\n` +
-        `🔗 <b>Lien du workflow:</b>\n` +
-        `https://github.com/ztalali09/linkedin-post-generator/actions\n\n` +
-        `⏰ <b>Le post sera généré et envoyé automatiquement</b>\n` +
-        `📊 <b>Vous pouvez suivre le progrès sur GitHub Actions</b>\n\n` +
-        `💡 <b>Note:</b> Le workflow utilise le code déployé sur GitHub`;
-      
-      await sendMessageWithKeyboard(chatId, message, generateKeyboard);
+    // Envoyer le post avec image si disponible
+    if (post.json.image && post.json.image.url) {
+      await sendPhotoWithCaption(chatId, post.json.image.url, post.json.content);
     } else {
-      const errorText = await response.text();
-      await sendMessageWithKeyboard(chatId, `❌ <b>Erreur déclenchement GitHub Actions:</b>\n\n${errorText}`, generateKeyboard);
+      await sendMessageWithKeyboard(chatId, post.json.content, generateKeyboard);
     }
     
+    // Envoyer les statistiques
+    const stats = `📊 <b>Post généré avec le code déployé:</b>\n` +
+      `• Type: ${post.json.type}\n` +
+      `• Longueur: ${post.json.content.length} caractères\n` +
+      `• Source: IA Gemini 2.5 Flash\n` +
+      `• Image: ${post.json.image ? '✅' : '❌'}\n\n` +
+      `🎯 <b>Prêt à publier sur LinkedIn !</b>`;
+    
+    await sendMessageWithKeyboard(chatId, stats, generateKeyboard);
+    
   } catch (error) {
-    await sendMessageWithKeyboard(chatId, `❌ <b>Erreur déclenchement GitHub Actions:</b>\n\n${error.message}`, generateKeyboard);
+    console.error('Erreur génération post:', error);
+    await sendMessageWithKeyboard(chatId, `❌ Erreur: ${error.message}\n\nVérifiez la configuration.`, generateKeyboard);
   }
 }
 
