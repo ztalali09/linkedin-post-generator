@@ -1,0 +1,18 @@
+{
+  "name": "LinkedIn Bot Generator",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:18",
+  "features": {
+    "ghcr.io/devcontainers/features/git:1": {}
+  },
+  "postCreateCommand": "npm install",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-vscode.vscode-json"
+      ]
+    }
+  },
+  "forwardPorts": [],
+  "portsAttributes": {},
+  "remoteUser": "node"
+}
