@@ -1,0 +1,133 @@
+name: 🤖 Telegram Callback Handler
+
+on:
+  repository_dispatch:
+    types: [telegram-callback]
+  workflow_dispatch:
+    inputs:
+      callback_data:
+        description: 'Callback data from Telegram'
+        required: true
+        default: 'generate_post'
+
+jobs:
+  handle-telegram-callback:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: 📥 Checkout code
+      uses: actions/checkout@v4
+      
+    - name: 📦 Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        
+    - name: 📦 Install dependencies
+      run: |
+        cd gemini_test_standalone
+        npm install
+        
+    - name: 🤖 Handle Telegram Callback
+      env:
+        GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        UNSPLASH_ACCESS_KEY: ${{ secrets.UNSPLASH_ACCESS_KEY }}
+        CALLBACK_DATA: ${{ github.event.inputs.callback_data || github.event.client_payload.callback_data || 'generate_post' }}
+      run: |
+        cd gemini_test_standalone
+        echo "🤖 Handling Telegram callback: $CALLBACK_DATA"
+        
+        # Generate post based on callback
+        if [ "$CALLBACK_DATA" = "generate_post" ] || [ "$CALLBACK_DATA" = "trigger_github" ]; then
+          echo "🚀 Generating LinkedIn post..."
+          node telegram_bot.js --auto
+        elif [ "$CALLBACK_DATA" = "show_stats" ]; then
+          echo "📊 Showing statistics..."
+          node -e "
+            const { showDatabaseStats } = require('./generate_authentic_varied_posts.js');
+            const fetch = require('node-fetch');
+            
+            async function sendStats() {
+              try {
+                const stats = await showDatabaseStats();
+                const statsText = \`📊 Statistiques de la Base de Données:\\n\\n\` +
+                  \`📝 Total posts: \${stats.total_posts}\\n\` +
+                  \`✅ Posts avec IA: \${stats.real_posts}\\n\` +
+                  \`⚠️ Posts fallback: \${stats.fallback_posts}\\n\` +
+                  \`🎨 Types uniques: \${stats.unique_types}\\n\`;
+                
+                const response = await fetch(\`https://api.telegram.org/bot\${process.env.TELEGRAM_BOT_TOKEN}/sendMessage\`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    chat_id: process.env.TELEGRAM_CHAT_ID,
+                    text: statsText,
+                    parse_mode: 'HTML'
+                  })
+                });
+                console.log('✅ Stats sent to Telegram');
+              } catch (error) {
+                console.error('❌ Error sending stats:', error);
+              }
+            }
+            sendStats();
+          "
+        elif [ "$CALLBACK_DATA" = "show_help" ]; then
+          echo "ℹ️ Showing help..."
+          node -e "
+            const fetch = require('node-fetch');
+            
+            async function sendHelp() {
+              try {
+                const helpText = \`🤖 Bot LinkedIn Post Generator\\n\\n\` +
+                  \`🎯 Fonctionnalités:\\n\` +
+                  \`• Génération de posts LinkedIn avec IA Gemini 2.5 Flash\\n\` +
+                  \`• Images automatiques avec Unsplash\\n\` +
+                  \`• Contenu authentique et varié\\n\` +
+                  \`• Évitement des répétitions\\n\\n\` +
+                  \`🔧 Configuration requise:\\n\` +
+                  \`• GEMINI_API_KEY (obligatoire)\\n\` +
+                  \`• TELEGRAM_BOT_TOKEN\\n\` +
+                  \`• TELEGRAM_CHAT_ID\\n\\n\` +
+                  \`📱 Utilisation:\\n\` +
+                  \`• 🤖 Générer un Post: Crée un post immédiatement\\n\` +
+                  \`• 🚀 Déclencher GitHub Actions: Utilise le code déployé\\n\` +
+                  \`• 🔄 Changer la Photo: Nouvelle image pour le même contenu\\n\` +
+                  \`• Le post est prêt à copier-coller sur LinkedIn\\n\` +
+                  \`• Images automatiquement associées\\n\\n\` +
+                  \`🚀 Automatisation:\\n\` +
+                  \`• Posts automatiques à 9h et 14h (GitHub Actions)\\n\` +
+                  \`• Système anti-répétition intégré\\n\\n\` +
+                  \`💡 Conseil: Utilisez Générer pour tester, GitHub Actions pour la production !\`;
+                
+                const response = await fetch(\`https://api.telegram.org/bot\${process.env.TELEGRAM_BOT_TOKEN}/sendMessage\`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    chat_id: process.env.TELEGRAM_CHAT_ID,
+                    text: helpText,
+                    parse_mode: 'HTML'
+                  })
+                });
+                console.log('✅ Help sent to Telegram');
+              } catch (error) {
+                console.error('❌ Error sending help:', error);
+              }
+            }
+            sendHelp();
+          "
+        else
+          echo "❌ Unknown callback data: $CALLBACK_DATA"
+        fi
+        
+    - name: 📊 Post execution summary
+      if: always()
+      run: |
+        echo "🤖 Telegram Bot Webhook - Execution Summary"
+        echo "⏰ Time: $(date)"
+        echo "📅 Date: $(date +%Y-%m-%d)"
+        echo "🕐 Hour: $(date +%H:%M)"
+        echo "✅ Job completed"
