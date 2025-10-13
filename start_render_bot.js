@@ -6,6 +6,7 @@
  */
 
 const { startBot } = require('./telegram_bot.js');
+const http = require('http');
 
 // Vérifier les variables d'environnement
 console.log('🚀 Démarrage du Bot LinkedIn Post Generator sur Render...');
@@ -38,12 +39,28 @@ console.log(`🤖 Gemini API: ${process.env.GEMINI_API_KEY ? 'Configurée' : 'Ma
 console.log(`🎨 Unsplash API: ${process.env.UNSPLASH_ACCESS_KEY ? 'Configurée' : 'Manquante'}`);
 console.log('');
 
-console.log('🤖 Démarrage du bot...');
-console.log('🚀 Fonctionne 24h/24 sur Render !');
-console.log('');
+// Créer un serveur HTTP simple pour Render
+const server = http.createServer((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+        status: 'Bot LinkedIn Post Generator is running!',
+        timestamp: new Date().toISOString(),
+        uptime: process.uptime(),
+        message: '🤖 Bot Telegram LinkedIn Post Generator - 24h/24 sur Render'
+    }));
+});
 
-// Démarrer le bot
-startBot().catch(error => {
-    console.error('❌ Erreur démarrage bot:', error);
-    process.exit(1);
+// Démarrer le serveur HTTP
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => {
+    console.log(`🌐 Serveur HTTP démarré sur le port ${PORT}`);
+    console.log('🤖 Démarrage du bot...');
+    console.log('🚀 Fonctionne 24h/24 sur Render !');
+    console.log('');
+    
+    // Démarrer le bot Telegram
+    startBot().catch(error => {
+        console.error('❌ Erreur démarrage bot:', error);
+        process.exit(1);
+    });
 });
