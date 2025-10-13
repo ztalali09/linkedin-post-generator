@@ -45,3 +45,4 @@ node test_gemini_complete.js
 ## 🎯 Résultat
 
 Le test génère un post LinkedIn authentique et l'envoie sur Telegram avec une image pertinente.
+
