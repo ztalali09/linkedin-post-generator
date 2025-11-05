@@ -9,43 +9,45 @@ const { generateAuthenticPost } = require('./generate_authentic_varied_posts.js'
 const fetch = require('node-fetch');
 
 // Fonction pour trouver une image alternative (pour changement de photo)
-async function findAlternativeImage(postType, content, geminiSuggestions = []) {
+// Utilise le système amélioré avec validation de pertinence
+async function findAlternativeImage(postType, content, geminiSuggestions = [], usedImages = []) {
   try {
-    const { generateSmartQueries, searchUnsplash } = require('./image_system.js');
+    const { findImageForPost } = require('./image_system.js');
     
-    // Générer les requêtes intelligentes
-    const queries = generateSmartQueries(postType, content, geminiSuggestions);
+    console.log(`🔄 Recherche d'image alternative avec validation de pertinence...`);
     
-    console.log(`🔄 Recherche d'image alternative avec ${queries.length} requêtes...`);
+    // Utiliser le système amélioré avec validation
+    const imageData = await findImageForPost(postType, content, usedImages, geminiSuggestions);
     
-    // Essayer chaque requête et collecter toutes les images
-    const allImages = [];
-    
-    for (let i = 0; i < queries.length; i++) {
-      const query = queries[i];
-      console.log(`   🔍 Requête ${i + 1}/${queries.length}: "${query.substring(0, 50)}..."`);
-      
-      const result = await searchUnsplash(query);
-      
-      if (result && result.images.length > 0) {
-        console.log(`   ✅ ${result.images.length} image(s) trouvée(s) pour cette requête`);
-        allImages.push(...result.images);
-      }
-    }
-    
-    if (allImages.length > 0) {
-      // Choisir une image aléatoire parmi toutes les options
-      const randomIndex = Math.floor(Math.random() * allImages.length);
-      const selectedImage = allImages[randomIndex];
-      
-      console.log(`   🎯 Image sélectionnée (${randomIndex + 1}/${allImages.length})`);
+    if (imageData && imageData.success && imageData.selectedImage) {
+      console.log(`   ✅ Image alternative trouvée avec score de pertinence: ${imageData.relevanceScore !== undefined ? imageData.relevanceScore.toFixed(1) : 'N/A'}`);
       
       return {
-        url: selectedImage.url,
-        description: selectedImage.description,
-        author: selectedImage.author,
-        source: 'unsplash'
+        url: imageData.selectedImage.url,
+        description: imageData.selectedImage.description,
+        author: imageData.selectedImage.author,
+        source: 'unsplash',
+        relevanceScore: imageData.relevanceScore,
+        warning: imageData.warning
       };
+    }
+    
+    // Fallback : utiliser l'ancien système si le nouveau échoue
+    console.log('   ⚠️ Nouveau système échoué, fallback ancien système...');
+    const { generateSmartQueries, searchUnsplash } = require('./image_system.js');
+    const queries = generateSmartQueries(postType, content, geminiSuggestions);
+    
+    for (const query of queries.slice(0, 3)) { // Essayer seulement les 3 meilleures requêtes
+      const result = await searchUnsplash(query);
+      if (result && result.images.length > 0) {
+        const selectedImage = result.images[0];
+        return {
+          url: selectedImage.url,
+          description: selectedImage.description,
+          author: selectedImage.author,
+          source: 'unsplash'
+        };
+      }
     }
     
     return null;
@@ -251,12 +253,23 @@ async function generatePost(chatId) {
     }
     
     // Envoyer les statistiques
-    const stats = `📊 <b>Statistiques du Post:</b>\n` +
+    let stats = `📊 <b>Statistiques du Post:</b>\n` +
       `• Type: ${post.json.type}\n` +
       `• Longueur: ${post.json.content.length} caractères\n` +
       `• Source: IA Gemini 2.5 Flash\n` +
-      `• Image: ${post.json.image ? '✅' : '❌'}\n\n` +
-      `🎯 <b>Prêt à publier sur LinkedIn !</b>`;
+      `• Image: ${post.json.image ? '✅' : '❌'}`;
+    
+    // Ajouter le score de pertinence si disponible
+    if (post.json.image && post.json.image.relevanceScore !== undefined) {
+      stats += `\n• 📊 Pertinence image: ${post.json.image.relevanceScore.toFixed(1)}/10`;
+    }
+    
+    // Ajouter les suggestions d'images si disponibles
+    if (post.json.imageSuggestions && post.json.imageSuggestions.length > 0) {
+      stats += `\n• 🤖 Suggestions: ${post.json.imageSuggestions.slice(0, 3).join(', ')}`;
+    }
+    
+    stats += `\n\n🎯 <b>Prêt à publier sur LinkedIn !</b>`;
     
     await sendMessageWithKeyboard(chatId, stats, postGeneratedKeyboard);
     
@@ -351,21 +364,42 @@ async function changePhoto(chatId) {
     const content = lastGeneratedPost.json.content;
     const geminiSuggestions = lastGeneratedPost.json.imageSuggestions || [];
     
-    console.log('🔄 Recherche d\'une nouvelle image avec les mêmes mots-clés...');
+    console.log('🔄 Recherche d\'une nouvelle image avec validation de pertinence...');
     
-    // Chercher une nouvelle image avec les mêmes paramètres
-    // Utiliser une fonction spéciale pour le changement de photo
-    const newImageData = await findAlternativeImage(postType, content, geminiSuggestions);
+    // Récupérer les images déjà utilisées depuis la BDD
+    let usedImages = [];
+    try {
+      const { getDatabase } = require('./database.js');
+      const db = await getDatabase();
+      usedImages = await db.getUsedImages();
+      console.log(`   📊 ${usedImages.length} image(s) déjà utilisée(s) en BDD`);
+    } catch (error) {
+      console.warn('⚠️ Impossible de récupérer les images utilisées:', error.message);
+    }
+    
+    // Chercher une nouvelle image avec les mêmes paramètres et validation
+    const newImageData = await findAlternativeImage(postType, content, geminiSuggestions, usedImages);
     
     if (newImageData && newImageData.url) {
       // Envoyer le même contenu avec la nouvelle image
       await sendPhotoWithCaption(chatId, newImageData.url, lastGeneratedPost.json.content);
       
-      const message = `✅ <b>Nouvelle image trouvée !</b>\n\n` +
+      let message = `✅ <b>Nouvelle image trouvée !</b>\n\n` +
         `🖼️ <b>Description:</b> ${newImageData.description}\n` +
         `👤 <b>Auteur:</b> ${newImageData.author}\n` +
-        `🔗 <b>Source:</b> Unsplash\n\n` +
-        `💡 <b>Même contenu, nouvelle image !</b>`;
+        `🔗 <b>Source:</b> Unsplash`;
+      
+      // Ajouter le score de pertinence si disponible
+      if (newImageData.relevanceScore !== undefined) {
+        message += `\n📊 <b>Pertinence:</b> ${newImageData.relevanceScore.toFixed(1)}/10`;
+      }
+      
+      // Ajouter un avertissement si disponible
+      if (newImageData.warning) {
+        message += `\n⚠️ <i>${newImageData.warning}</i>`;
+      }
+      
+      message += `\n\n💡 <b>Même contenu, nouvelle image !</b>`;
       
       await sendMessageWithKeyboard(chatId, message, postGeneratedKeyboard);
     } else {

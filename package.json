@@ -5,6 +5,7 @@
   "main": "test_gemini_complete.js",
   "scripts": {
     "test": "node test_gemini_complete.js",
+    "test:10posts": "node test_10_posts.js",
     "start": "node start_render_bot.js",
     "dev": "node telegram_bot.js"
   },
