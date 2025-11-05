@@ -5,7 +5,7 @@
  * Utilise le système Gemini 2.5 Flash pour générer des posts
  */
 
-const { generateAuthenticPost } = require('./generate_authentic_varied_posts.js');
+const { generateAuthenticPost, getTrendingTopics, selectBestTopic, generatePostContent, findBestStructureForTopic } = require('./generate_authentic_varied_posts.js');
 const fetch = require('node-fetch');
 
 // Fonction pour trouver une image alternative (pour changement de photo)
@@ -112,6 +112,9 @@ const BOT_CONFIG = {
 // Stockage du dernier post généré pour changer la photo
 let lastGeneratedPost = null;
 
+// Stockage des topics disponibles pour sélection
+let availableTopics = null;
+
 // Clavier inline avec boutons
 const generateKeyboard = {
   inline_keyboard: [
@@ -140,23 +143,27 @@ const generateKeyboard = {
   ]
 };
 
-// Clavier avec bouton "Change Photo" (affiché après génération d'un post)
+// Clavier avec boutons après génération d'un post
 const postGeneratedKeyboard = {
   inline_keyboard: [
     [
       {
         text: '🔄 Changer la Photo',
         callback_data: 'change_photo'
+      },
+      {
+        text: '✏️ Reformuler le Texte',
+        callback_data: 'reformulate_text'
       }
     ],
     [
       {
-        text: '🤖 Nouveau Post',
-        callback_data: 'generate_post'
+        text: '📋 Choisir un Sujet',
+        callback_data: 'choose_topic'
       },
       {
-        text: '🚀 GitHub Actions',
-        callback_data: 'trigger_github'
+        text: '🤖 Nouveau Post',
+        callback_data: 'generate_post'
       }
     ],
     [
@@ -290,6 +297,29 @@ async function generatePost(chatId) {
     // Stocker le post pour pouvoir changer la photo
     lastGeneratedPost = post;
     
+    // Stocker les topics disponibles pour sélection (si disponible)
+    try {
+      const { getDatabase } = require('./database.js');
+      const { generateTopicHash } = require('./generate_authentic_varied_posts.js');
+      const db = await getDatabase();
+      const topics = await getTrendingTopics();
+      if (topics && topics.length > 0) {
+        // Filtrer les topics déjà traités
+        const topicChecks = topics.map(async (topic) => {
+          const hash = generateTopicHash(topic.subject);
+          const isTreated = await db.isTopicTreated(hash);
+          return { topic, isTreated };
+        });
+        const checkResults = await Promise.all(topicChecks);
+        availableTopics = checkResults
+          .filter(result => !result.isTreated)
+          .map(result => result.topic)
+          .slice(0, 10); // Garder les 10 premiers
+      }
+    } catch (error) {
+      console.warn('⚠️ Impossible de stocker les topics:', error.message);
+    }
+    
     // Envoyer le post avec image si disponible
     if (post.json.image && post.json.image.url) {
       await sendPhotoWithCaption(chatId, post.json.image.url, post.json.content);
@@ -301,7 +331,7 @@ async function generatePost(chatId) {
     let stats = `📊 <b>Statistiques du Post:</b>\n` +
       `• Type: ${post.json.type}\n` +
       `• Longueur: ${post.json.content.length} caractères\n` +
-      `• Source: IA Gemini 2.5 Flash\n` +
+      `• Source: IA Gemini 2.0 Flash\n` +
       `• Image: ${post.json.image ? '✅' : '❌'}`;
     
     // Ajouter le score de pertinence si disponible
@@ -486,28 +516,326 @@ async function changePhoto(chatId) {
   }
 }
 
+// Fonction pour afficher les sujets disponibles et permettre de choisir
+async function chooseTopic(chatId) {
+  try {
+    await sendMessageWithKeyboard(chatId, '📋 <b>Récupération des sujets disponibles...</b>', null);
+    
+    // Récupérer les topics
+    const topics = await getTrendingTopics();
+    
+    if (!topics || topics.length === 0) {
+      await sendMessageWithKeyboard(chatId, '❌ <b>Aucun sujet disponible !</b>\n\nEssayez de générer un nouveau post.', postGeneratedKeyboard);
+      return;
+    }
+    
+    // Filtrer les topics déjà traités
+    const { getDatabase } = require('./database.js');
+    const { generateTopicHash } = require('./generate_authentic_varied_posts.js');
+    const db = await getDatabase();
+    
+    const topicChecks = topics.map(async (topic) => {
+      const hash = generateTopicHash(topic.subject);
+      const isTreated = await db.isTopicTreated(hash);
+      return { topic, isTreated };
+    });
+    
+    const checkResults = await Promise.all(topicChecks);
+    const freshTopics = checkResults
+      .filter(result => !result.isTreated)
+      .map(result => result.topic)
+      .slice(0, 10); // Limiter à 10 sujets
+    
+    if (freshTopics.length === 0) {
+      await sendMessageWithKeyboard(chatId, '⚠️ <b>Tous les sujets ont déjà été traités !</b>\n\nGénérez un nouveau post pour obtenir de nouveaux sujets.', postGeneratedKeyboard);
+      return;
+    }
+    
+    // Créer les boutons pour chaque sujet
+    const keyboardButtons = freshTopics.slice(0, 10).map((topic, index) => {
+      const shortSubject = topic.subject.length > 50 
+        ? topic.subject.substring(0, 47) + '...' 
+        : topic.subject;
+      return [{
+        text: `${index + 1}. ${shortSubject}`,
+        callback_data: `select_topic_${index}`
+      }];
+    });
+    
+    // Ajouter un bouton retour
+    keyboardButtons.push([
+      {
+        text: '🔙 Retour',
+        callback_data: 'back_to_menu'
+      }
+    ]);
+    
+    const topicKeyboard = {
+      inline_keyboard: keyboardButtons
+    };
+    
+    // Stocker les topics pour la sélection
+    availableTopics = freshTopics;
+    
+    let topicsText = `📋 <b>Sujets disponibles (${freshTopics.length}) :</b>\n\n`;
+    freshTopics.forEach((topic, index) => {
+      topicsText += `${index + 1}. <b>${topic.subject}</b>\n`;
+      if (topic.angle) {
+        topicsText += `   Angle: ${topic.angle.substring(0, 60)}${topic.angle.length > 60 ? '...' : ''}\n`;
+      }
+      topicsText += `   Priorité: ${topic.priority || 'N/A'}/5\n\n`;
+    });
+    topicsText += `💡 <b>Sélectionnez un sujet ci-dessous :</b>`;
+    
+    await sendMessageWithKeyboard(chatId, topicsText, topicKeyboard);
+    
+  } catch (error) {
+    console.error('Erreur choix sujet:', error);
+    await sendMessageWithKeyboard(chatId, `❌ <b>Erreur lors de la récupération des sujets:</b>\n\n${error.message}`, postGeneratedKeyboard);
+  }
+}
+
+// Fonction pour générer un post avec un sujet spécifique
+async function generatePostWithTopic(chatId, topicIndex) {
+  try {
+    if (!availableTopics || !availableTopics[topicIndex]) {
+      await sendMessageWithKeyboard(chatId, '❌ <b>Sujet non disponible !</b>\n\nChoisissez à nouveau un sujet.', postGeneratedKeyboard);
+      return;
+    }
+    
+    const selectedTopic = availableTopics[topicIndex];
+    await sendMessageWithKeyboard(chatId, `⏳ <b>Génération du post...</b>\n\n📋 <b>Sujet sélectionné:</b> ${selectedTopic.subject}\n\n🤖 Utilisation de Gemini 2.0 Flash...`, null);
+    
+    // Trouver la meilleure structure pour ce topic
+    const structure = findBestStructureForTopic(selectedTopic);
+    
+    // Générer le contenu
+    const contentResult = await generatePostContent(selectedTopic, structure);
+    
+    if (!contentResult || !contentResult.content) {
+      await sendMessageWithKeyboard(chatId, '❌ <b>Erreur lors de la génération du contenu.</b>', postGeneratedKeyboard);
+      return;
+    }
+    
+    // Récupérer les images déjà utilisées
+    const { getDatabase } = require('./database.js');
+    const { findImageForPost } = require('./image_system.js');
+    const db = await getDatabase();
+    const usedImages = await db.getUsedImages();
+    
+    // Chercher une image
+    let imageData = null;
+    try {
+      imageData = await findImageForPost(structure.type, contentResult.content, usedImages, contentResult.imageSuggestions || []);
+    } catch (error) {
+      console.warn('⚠️ Erreur recherche image:', error.message);
+    }
+    
+    // Créer le post
+    const post = {
+      json: {
+        content: contentResult.content,
+        type: structure.type,
+        hashtags: structure.hashtags.join(' '),
+        topic: selectedTopic.subject,
+        angle: selectedTopic.angle,
+        relevance: selectedTopic.relevance,
+        generatedAt: new Date().toISOString(),
+        style: "authentic_dynamic",
+        imageSuggestions: contentResult.imageSuggestions || [],
+        image: imageData && imageData.success ? {
+          url: imageData.selectedImage.url,
+          thumb: imageData.selectedImage.thumb,
+          description: imageData.selectedImage.description,
+          author: imageData.selectedImage.author,
+          authorUrl: imageData.selectedImage.authorUrl,
+          source: imageData.source,
+          relevanceScore: imageData.relevanceScore
+        } : null
+      }
+    };
+    
+    // Stocker le post
+    lastGeneratedPost = post;
+    
+    // Envoyer le post
+    if (post.json.image && post.json.image.url) {
+      await sendPhotoWithCaption(chatId, post.json.image.url, post.json.content);
+    } else {
+      await sendMessageWithKeyboard(chatId, post.json.content, postGeneratedKeyboard);
+    }
+    
+    // Statistiques
+    let stats = `📊 <b>Post généré avec sujet sélectionné:</b>\n` +
+      `• Type: ${post.json.type}\n` +
+      `• Longueur: ${post.json.content.length} caractères\n` +
+      `• Image: ${post.json.image ? '✅' : '❌'}`;
+    
+    if (post.json.image && post.json.image.relevanceScore !== undefined) {
+      stats += `\n• 📊 Pertinence image: ${post.json.image.relevanceScore.toFixed(1)}/10`;
+    }
+    
+    stats += `\n\n🎯 <b>Prêt à publier sur LinkedIn !</b>`;
+    
+    await sendMessageWithKeyboard(chatId, stats, postGeneratedKeyboard);
+    
+  } catch (error) {
+    console.error('Erreur génération post avec sujet:', error);
+    await sendMessageWithKeyboard(chatId, `❌ <b>Erreur:</b>\n\n${error.message}`, postGeneratedKeyboard);
+  }
+}
+
+// Fonction pour reformuler le texte du post
+async function reformulateText(chatId) {
+  try {
+    if (!lastGeneratedPost || !lastGeneratedPost.json) {
+      await sendMessageWithKeyboard(chatId, '❌ <b>Aucun post récent trouvé !</b>\n\nGénérez d\'abord un post.', generateKeyboard);
+      return;
+    }
+    
+    await sendMessageWithKeyboard(chatId, '✏️ <b>Reformulation du texte en cours...</b>\n\n🤖 Utilisation de Gemini 2.0 Flash pour améliorer le texte...', null);
+    
+    const currentPost = lastGeneratedPost.json;
+    
+    // Préparer le prompt pour reformulation
+    const reformulatePrompt = `Tu es un expert en rédaction LinkedIn. Tu dois reformuler et améliorer le texte suivant pour qu'il soit plus engageant, plus professionnel et optimisé pour LinkedIn.
+
+═══════════════════════════════════════════════════════════════
+TEXTE ACTUEL À REFORMULER :
+═══════════════════════════════════════════════════════════════
+${currentPost.content}
+
+═══════════════════════════════════════════════════════════════
+CONTEXTE :
+═══════════════════════════════════════════════════════════════
+Type de post : ${currentPost.type}
+Sujet : ${currentPost.topic || 'N/A'}
+Angle : ${currentPost.angle || 'N/A'}
+
+═══════════════════════════════════════════════════════════════
+INSTRUCTIONS :
+═══════════════════════════════════════════════════════════════
+1. Garder le même message et le même angle
+2. Améliorer la clarté et l'impact
+3. Rendre le texte plus engageant
+4. Optimiser pour LinkedIn (150-250 mots idéalement)
+5. Garder les hashtags si présents
+6. Améliorer l'accroche si possible
+7. Garder le ton authentique et professionnel
+
+═══════════════════════════════════════════════════════════════
+FORMAT DE RÉPONSE :
+═══════════════════════════════════════════════════════════════
+POST: [ton texte reformulé et amélioré ici]
+
+IMAGE_SUGGESTIONS: [3-5 mots-clés en anglais pour l'image, séparés par des virgules]
+
+REFORMULE MAINTENANT le texte pour qu'il soit plus impactant et engageant :`;
+    
+    // Appeler Gemini pour reformuler
+    const { callGeminiAPI } = require('./generate_authentic_varied_posts.js');
+    const response = await callGeminiAPI(reformulatePrompt);
+    
+    if (!response) {
+      await sendMessageWithKeyboard(chatId, '❌ <b>Erreur lors de la reformulation.</b>\n\nGemini n\'a pas pu reformuler le texte.', postGeneratedKeyboard);
+      return;
+    }
+    
+    // Parser la réponse (même logique que generatePostContent)
+    let postMatch = response.match(/POST:\s*(.+?)(?=IMAGE_SUGGESTIONS:|$)/s);
+    if (!postMatch) {
+      postMatch = response.match(/POST[:\s]*(.+?)(?=IMAGE|$)/s);
+    }
+    if (!postMatch) {
+      const lines = response.split('\n');
+      const postStart = lines.findIndex(line => line.toLowerCase().includes('post') || line.trim().length > 50);
+      if (postStart >= 0) {
+        postMatch = { 1: lines.slice(postStart).join('\n').replace(/^(POST|POST:)/i, '').trim() };
+      }
+    }
+    
+    if (!postMatch || !postMatch[1]) {
+      // Si pas de format POST:, utiliser tout le texte
+      const reformulatedContent = response.trim();
+      if (reformulatedContent.length > 100) {
+        // Mettre à jour le post
+        lastGeneratedPost.json.content = reformulatedContent;
+        
+        // Envoyer le nouveau texte
+        if (lastGeneratedPost.json.image && lastGeneratedPost.json.image.url) {
+          await sendPhotoWithCaption(chatId, lastGeneratedPost.json.image.url, reformulatedContent);
+        } else {
+          await sendMessageWithKeyboard(chatId, reformulatedContent, postGeneratedKeyboard);
+        }
+        
+        await sendMessageWithKeyboard(chatId, '✅ <b>Texte reformulé avec succès !</b>', postGeneratedKeyboard);
+        return;
+      }
+    }
+    
+    const reformulatedContent = postMatch[1].trim();
+    
+    if (reformulatedContent.length < 100) {
+      await sendMessageWithKeyboard(chatId, '⚠️ <b>Texte reformulé trop court.</b>\n\nLe texte n\'a pas pu être reformulé correctement.', postGeneratedKeyboard);
+      return;
+    }
+    
+    // Mettre à jour le post
+    lastGeneratedPost.json.content = reformulatedContent;
+    
+    // Parser les suggestions d'images si disponibles
+    const imageMatch = response.match(/IMAGE_SUGGESTIONS?:\s*(.+?)$/s) || 
+                       response.match(/IMAGE[:\s]*(.+?)$/s);
+    if (imageMatch && imageMatch[1]) {
+      const imageSuggestions = imageMatch[1]
+        .trim()
+        .split(',')
+        .map(s => s.trim())
+        .filter(s => s && s.length > 0 && s.length < 50)
+        .slice(0, 5);
+      lastGeneratedPost.json.imageSuggestions = imageSuggestions;
+    }
+    
+    // Envoyer le nouveau texte
+    if (lastGeneratedPost.json.image && lastGeneratedPost.json.image.url) {
+      await sendPhotoWithCaption(chatId, lastGeneratedPost.json.image.url, reformulatedContent);
+    } else {
+      await sendMessageWithKeyboard(chatId, reformulatedContent, postGeneratedKeyboard);
+    }
+    
+    await sendMessageWithKeyboard(chatId, 
+      '✅ <b>Texte reformulé avec succès !</b>\n\n' +
+      `📝 <b>Longueur:</b> ${reformulatedContent.length} caractères\n` +
+      `💡 <b>Le texte a été amélioré par Gemini 2.0 Flash</b>`, 
+      postGeneratedKeyboard
+    );
+    
+  } catch (error) {
+    console.error('Erreur reformulation texte:', error);
+    await sendMessageWithKeyboard(chatId, `❌ <b>Erreur lors de la reformulation:</b>\n\n${error.message}`, postGeneratedKeyboard);
+  }
+}
+
 // Fonction pour afficher l'aide
 async function showHelp(chatId) {
   const helpText = `🤖 <b>Bot LinkedIn Post Generator</b>\n\n` +
     `🎯 <b>Fonctionnalités:</b>\n` +
-    `• Génération de posts LinkedIn avec IA Gemini 2.5 Flash\n` +
-    `• Images automatiques avec Unsplash\n` +
+    `• Génération de posts LinkedIn avec IA Gemini 2.0 Flash\n` +
+    `• Images automatiques (Pexels, Freepik, Pixabay, Unsplash)\n` +
+    `• Logos tech automatiques (Simple Icons)\n` +
     `• Contenu authentique et varié\n` +
     `• Évitement des répétitions\n\n` +
     `🔧 <b>Configuration requise:</b>\n` +
     `• GEMINI_API_KEY (obligatoire)\n` +
     `• TELEGRAM_BOT_TOKEN\n` +
     `• TELEGRAM_CHAT_ID\n\n` +
-    `📱 <b>Utilisation:</b>\n` +
-    `• <b>🤖 Générer un Post:</b> Crée un post immédiatement (local)\n` +
-    `• <b>🚀 Déclencher GitHub Actions:</b> Utilise le code déployé sur GitHub\n` +
+    `📱 <b>Boutons disponibles:</b>\n` +
+    `• <b>🤖 Générer un Post:</b> Post automatique avec sujet sélectionné\n` +
+    `• <b>📋 Choisir un Sujet:</b> Sélectionner parmi les sujets disponibles\n` +
     `• <b>🔄 Changer la Photo:</b> Nouvelle image pour le même contenu\n` +
-    `• Le post est prêt à copier-coller sur LinkedIn\n` +
-    `• Images automatiquement associées\n\n` +
-    `🚀 <b>Automatisation:</b>\n` +
-    `• Posts automatiques à 9h et 14h (GitHub Actions)\n` +
-    `• Système anti-répétition intégré\n\n` +
-    `💡 <b>Conseil:</b> Utilisez "Générer" pour tester, "GitHub Actions" pour la production !`;
+    `• <b>✏️ Reformuler le Texte:</b> Améliorer le texte avec Gemini\n` +
+    `• <b>📊 Statistiques:</b> Voir les stats de la base de données\n\n` +
+    `💡 <b>Astuce:</b> Utilisez "Choisir un Sujet" pour avoir plus de contrôle !`;
   
   await sendMessageWithKeyboard(chatId, helpText, generateKeyboard);
 }
@@ -537,22 +865,38 @@ async function processMessage(update) {
     
     await answerCallbackQuery(callbackId, '⏳ Traitement en cours...');
     
-    switch (data) {
-      case 'generate_post':
-        await generatePost(chatId);
-        break;
-      case 'trigger_github':
-        await triggerGitHubAction(chatId);
-        break;
-      case 'change_photo':
-        await changePhoto(chatId);
-        break;
-      case 'show_stats':
-        await showStats(chatId);
-        break;
-      case 'show_help':
-        await showHelp(chatId);
-        break;
+    // Gérer les callbacks avec sujets (select_topic_0, select_topic_1, etc.)
+    if (data.startsWith('select_topic_')) {
+      const topicIndex = parseInt(data.replace('select_topic_', ''));
+      if (!isNaN(topicIndex)) {
+        await generatePostWithTopic(chatId, topicIndex);
+      }
+    } else if (data === 'back_to_menu') {
+      await sendMessageWithKeyboard(chatId, '🔙 <b>Retour au menu principal</b>', generateKeyboard);
+    } else {
+      switch (data) {
+        case 'generate_post':
+          await generatePost(chatId);
+          break;
+        case 'trigger_github':
+          await triggerGitHubAction(chatId);
+          break;
+        case 'change_photo':
+          await changePhoto(chatId);
+          break;
+        case 'choose_topic':
+          await chooseTopic(chatId);
+          break;
+        case 'reformulate_text':
+          await reformulateText(chatId);
+          break;
+        case 'show_stats':
+          await showStats(chatId);
+          break;
+        case 'show_help':
+          await showHelp(chatId);
+          break;
+      }
     }
   }
 }

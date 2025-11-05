@@ -1869,4 +1869,7 @@ module.exports.showFormatDistribution = showFormatDistribution;
 module.exports.showTopicDomains = showTopicDomains;
 module.exports.calculateLinkedInScore = calculateLinkedInScore;
 module.exports.selectBestTopic = selectBestTopic;
+module.exports.findBestStructureForTopic = findBestStructureForTopic;
+module.exports.generateTopicHash = generateTopicHash;
+module.exports.callGeminiAPI = callGeminiAPI;
 module.exports.getDatabase = getDatabase;
