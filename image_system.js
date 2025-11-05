@@ -1,19 +1,84 @@
 // 🎨 Système Intelligent de Recherche d'Images pour Posts LinkedIn
-// Utilise l'API Unsplash pour trouver des images pertinentes
+// Utilise plusieurs APIs : Simple Icons (logos), Pexels, Freepik, Pixabay, Unsplash
 
 const fetch = require('node-fetch');
 
-// Configuration de l'API Unsplash
+// Configuration des APIs d'images
 const IMAGE_CONFIG = {
+  // Pexels - Photos de qualité (priorité 1)
+  pexels: {
+    accessKey: process.env.PEXELS_API_KEY || 'PMvOw4drwK5M2wgPLCSQdFSb6H1C65k77qkTTYvQiLcExn9bhK7ODmIv',
+    baseUrl: 'https://api.pexels.com/v1/search',
+    enabled: true,
+    perPage: 5 // 5 résultats par requête
+  },
+  
+  // Freepik - Illustrations vectorielles et icônes (priorité 2)
+  freepik: {
+    accessKey: process.env.FREEPIK_API_KEY || 'FPSX90de7ab5a987e48f1bb47a5619775cc0',
+    baseUrl: 'https://api.freepik.com/v1/resources',
+    enabled: true,
+    perPage: 5,
+    resourceType: 'vector', // vector, photo, psd
+    language: 'en'
+  },
+  
+  // Pixabay - Photos + illustrations (priorité 3)
+  pixabay: {
+    accessKey: process.env.PIXABAY_API_KEY || '',
+    baseUrl: 'https://pixabay.com/api/',
+    enabled: true,
+    perPage: 5,
+    imageType: 'photo', // photo, illustration, vector
+    category: 'computer' // catégorie par défaut
+  },
+  
+  // Simple Icons CDN - Logos tech (priorité 3, pas besoin d'API)
+  simpleIcons: {
+    enabled: true,
+    cdnUrl: 'https://cdn.simpleicons.org',
+    // Mapping des technologies vers leurs noms Simple Icons
+    techMap: {
+      'vue.js': 'vue.js',
+      'vue': 'vue.js',
+      'react': 'react',
+      'reactjs': 'react',
+      'javascript': 'javascript',
+      'js': 'javascript',
+      'typescript': 'typescript',
+      'ts': 'typescript',
+      'node.js': 'nodedotjs',
+      'node': 'nodedotjs',
+      'nodejs': 'nodedotjs',
+      'python': 'python',
+      'java': 'java',
+      'git': 'git',
+      'docker': 'docker',
+      'mongodb': 'mongodb',
+      'postgresql': 'postgresql',
+      'redis': 'redis',
+      'aws': 'amazonaws',
+      'azure': 'microsoftazure',
+      'express': 'express',
+      'tailwind': 'tailwindcss',
+      'bootstrap': 'bootstrap',
+      'html': 'html5',
+      'css': 'css3',
+      'next.js': 'nextdotjs',
+      'nuxt.js': 'nuxtdotjs'
+    }
+  },
+  
+  // Unsplash - Fallback (priorité 4)
   unsplash: {
     accessKey: process.env.UNSPLASH_ACCESS_KEY || 'wRcMCC950Uor09pS2ool-Xbtw6ROp22UbMKXdCSkweI',
     baseUrl: 'https://api.unsplash.com/search/photos',
     enabled: true,
     // Restrictions de contenu pour LinkedIn professionnel
     contentFilter: {
-      orientation: 'landscape', // Évite les portraits trop personnels
-      content_filter: 'high', // Filtre strict pour contenu approprié
-      safe_search: true // Recherche sécurisée
+      orientation: 'landscape',
+      content_filter: 'high',
+      safe_search: true
     }
   }
 };
@@ -369,7 +434,217 @@ function generateSmartQueries(postType, content, geminiSuggestions = []) {
   return scoredQueries;
 }
 
-// Fonction de recherche Unsplash
+// Fonction pour chercher un logo tech via Simple Icons CDN
+function searchSimpleIcon(techName) {
+  if (!IMAGE_CONFIG.simpleIcons.enabled) {
+    return null;
+  }
+  
+  const techLower = techName.toLowerCase().trim();
+  const iconName = IMAGE_CONFIG.simpleIcons.techMap[techLower];
+  
+  if (!iconName) {
+    return null;
+  }
+  
+  // Couleurs par défaut pour les logos (format: nom/color)
+  const defaultColors = {
+    'vue.js': '4FC08D',
+    'react': '61DAFB',
+    'javascript': 'F7DF1E',
+    'typescript': '3178C6',
+    'nodedotjs': '339933',
+    'python': '3776AB',
+    'java': 'ED8B00',
+    'git': 'F05032',
+    'docker': '2496ED',
+    'mongodb': '47A248',
+    'postgresql': '4169E1',
+    'redis': 'DC382D',
+    'amazonaws': 'FF9900',
+    'microsoftazure': '0078D4',
+    'express': '000000',
+    'tailwindcss': '38B2AC',
+    'bootstrap': '7952B3',
+    'html5': 'E34F26',
+    'css3': '1572B6',
+    'nextdotjs': '000000',
+    'nuxtdotjs': '00C58E'
+  };
+  
+  const color = defaultColors[iconName] || '000000';
+  const iconUrl = `${IMAGE_CONFIG.simpleIcons.cdnUrl}/${iconName}/${color}`;
+  
+  return {
+    source: 'simple-icons',
+    query: techName,
+    images: [{
+      url: iconUrl,
+      thumb: iconUrl,
+      description: `${techName} logo`,
+      author: 'Simple Icons',
+      authorUrl: 'https://simpleicons.org/',
+      downloadUrl: iconUrl,
+      isLogo: true
+    }]
+  };
+}
+
+// Fonction de recherche Pexels (priorité 1)
+async function searchPexels(query) {
+  if (!IMAGE_CONFIG.pexels.enabled || !IMAGE_CONFIG.pexels.accessKey) {
+    return null;
+  }
+  
+  try {
+    const safeQuery = filterSafeKeywords(query.split(' ')).join(' ');
+    console.log(`   📸 Pexels recherche: "${safeQuery}"`);
+    
+    const url = `${IMAGE_CONFIG.pexels.baseUrl}?query=${encodeURIComponent(safeQuery)}&per_page=${IMAGE_CONFIG.pexels.perPage}&orientation=landscape`;
+    
+    const response = await fetch(url, {
+      headers: {
+        'Authorization': IMAGE_CONFIG.pexels.accessKey
+      }
+    });
+    
+    if (response.ok) {
+      const data = await response.json();
+      if (data.photos && data.photos.length > 0) {
+        return {
+          source: 'pexels',
+          query: query,
+          images: data.photos.map(photo => ({
+            url: photo.src.large2x || photo.src.large,
+            thumb: photo.src.medium,
+            description: photo.alt || 'Image professionnelle',
+            author: photo.photographer,
+            authorUrl: photo.photographer_url,
+            downloadUrl: photo.url
+          }))
+        };
+      }
+    } else if (response.status === 429) {
+      console.log('⚠️ Rate limit Pexels atteint');
+    } else {
+      console.log(`⚠️ Pexels erreur ${response.status}`);
+    }
+  } catch (error) {
+    console.log('❌ Pexels error:', error.message);
+  }
+  
+  return null;
+}
+
+// Fonction de recherche Freepik (priorité 2)
+async function searchFreepik(query) {
+  if (!IMAGE_CONFIG.freepik.enabled || !IMAGE_CONFIG.freepik.accessKey) {
+    return null;
+  }
+  
+  try {
+    const safeQuery = filterSafeKeywords(query.split(' ')).join(' ');
+    console.log(`   🎨 Freepik recherche: "${safeQuery}"`);
+    
+    // API Freepik utilise une recherche par mots-clés
+    const url = `${IMAGE_CONFIG.freepik.baseUrl}?query=${encodeURIComponent(safeQuery)}&limit=${IMAGE_CONFIG.freepik.perPage}&resource_type=${IMAGE_CONFIG.freepik.resourceType}&language=${IMAGE_CONFIG.freepik.language}`;
+    
+    const response = await fetch(url, {
+      headers: {
+        'X-Freepik-API-Key': IMAGE_CONFIG.freepik.accessKey,
+        'Accept': 'application/json'
+      }
+    });
+    
+    if (response.ok) {
+      const data = await response.json();
+      // Freepik API peut retourner différents formats selon la version
+      if (data.data && Array.isArray(data.data) && data.data.length > 0) {
+        return {
+          source: 'freepik',
+          query: query,
+          images: data.data.map(item => ({
+            url: item.attributes?.url || item.url || item.attributes?.preview_url,
+            thumb: item.attributes?.preview_url || item.preview || item.attributes?.url,
+            description: item.attributes?.title || item.title || safeQuery,
+            author: item.attributes?.author || 'Freepik',
+            authorUrl: item.attributes?.author_url || 'https://www.freepik.com/',
+            downloadUrl: item.attributes?.download_url || item.url
+          })).filter(img => img.url) // Filtrer les images sans URL
+        };
+      }
+      // Format alternatif si la structure est différente
+      if (data.resources && Array.isArray(data.resources) && data.resources.length > 0) {
+        return {
+          source: 'freepik',
+          query: query,
+          images: data.resources.map(item => ({
+            url: item.url || item.preview_url,
+            thumb: item.preview_url || item.thumbnail || item.url,
+            description: item.title || safeQuery,
+            author: item.author || 'Freepik',
+            authorUrl: item.author_url || 'https://www.freepik.com/',
+            downloadUrl: item.download_url || item.url
+          })).filter(img => img.url)
+        };
+      }
+    } else if (response.status === 429) {
+      console.log('⚠️ Rate limit Freepik atteint');
+    } else {
+      console.log(`⚠️ Freepik erreur ${response.status}`);
+      const errorText = await response.text().catch(() => '');
+      console.log(`   Détails: ${errorText.substring(0, 100)}`);
+    }
+  } catch (error) {
+    console.log('❌ Freepik error:', error.message);
+  }
+  
+  return null;
+}
+
+// Fonction de recherche Pixabay (priorité 3)
+async function searchPixabay(query) {
+  if (!IMAGE_CONFIG.pixabay.enabled || !IMAGE_CONFIG.pixabay.accessKey) {
+    return null;
+  }
+  
+  try {
+    const safeQuery = filterSafeKeywords(query.split(' ')).join(' ');
+    console.log(`   🎨 Pixabay recherche: "${safeQuery}"`);
+    
+    const url = `${IMAGE_CONFIG.pixabay.baseUrl}?key=${IMAGE_CONFIG.pixabay.accessKey}&q=${encodeURIComponent(safeQuery)}&image_type=${IMAGE_CONFIG.pixabay.imageType}&per_page=${IMAGE_CONFIG.pixabay.perPage}&category=${IMAGE_CONFIG.pixabay.category}&safesearch=true`;
+    
+    const response = await fetch(url);
+    
+    if (response.ok) {
+      const data = await response.json();
+      if (data.hits && data.hits.length > 0) {
+        return {
+          source: 'pixabay',
+          query: query,
+          images: data.hits.map(hit => ({
+            url: hit.largeImageURL || hit.webformatURL,
+            thumb: hit.previewURL,
+            description: hit.tags || 'Image professionnelle',
+            author: hit.user,
+            authorUrl: `https://pixabay.com/users/${hit.user}-${hit.user_id}/`,
+            downloadUrl: hit.pageURL
+          }))
+        };
+      }
+    } else if (response.status === 429) {
+      console.log('⚠️ Rate limit Pixabay atteint');
+    } else {
+      console.log(`⚠️ Pixabay erreur ${response.status}`);
+    }
+  } catch (error) {
+    console.log('❌ Pixabay error:', error.message);
+  }
+  
+  return null;
+}
+
+// Fonction de recherche Unsplash (fallback)
 async function searchUnsplash(query) {
   if (!IMAGE_CONFIG.unsplash.enabled || IMAGE_CONFIG.unsplash.accessKey === 'YOUR_UNSPLASH_ACCESS_KEY') {
     console.log('⚠️ Unsplash désactivé ou clé API invalide');
@@ -379,7 +654,7 @@ async function searchUnsplash(query) {
   try {
     // Paramètres de sécurité pour LinkedIn professionnel
     const safeQuery = filterSafeKeywords(query.split(' ')).join(' ');
-    console.log(`   🔒 Requête sécurisée: "${safeQuery}"`);
+    console.log(`   🔒 Unsplash recherche: "${safeQuery}"`);
     
     const url = `${IMAGE_CONFIG.unsplash.baseUrl}?query=${encodeURIComponent(safeQuery)}&per_page=3&orientation=${IMAGE_CONFIG.unsplash.contentFilter.orientation}&order_by=relevant&content_filter=${IMAGE_CONFIG.unsplash.contentFilter.content_filter}`;
     
@@ -461,25 +736,76 @@ function validateImageRelevance(imageDescription, content, query) {
   return Math.max(0, relevanceScore);
 }
 
-// Fonction principale : rechercher une image pour un post (avec anti-répétition + suggestions Gemini + validation)
+// Fonction pour détecter si le contenu parle d'une technologie spécifique
+function detectTechInContent(content) {
+  const contentLower = content.toLowerCase();
+  const techKeywords = Object.keys(IMAGE_CONFIG.simpleIcons.techMap);
+  
+  for (const tech of techKeywords) {
+    if (contentLower.includes(tech)) {
+      return tech;
+    }
+  }
+  
+  return null;
+}
+
+// Fonction principale : rechercher une image pour un post (multi-APIs avec priorité)
 async function findImageForPost(postType, content, usedImages = [], geminiSuggestions = []) {
   console.log(`🎨 Recherche d'image pour type: ${postType}`);
   
   // Créer un Set des hashes d'images déjà utilisées
   const usedHashes = new Set(usedImages.map(img => img.image_hash).filter(Boolean));
   
-  // Générer les requêtes intelligentes avec suggestions Gemini (déjà triées par score)
-  const queries = generateSmartQueries(postType, content, geminiSuggestions);
+  // PRIORITÉ 1 : Vérifier si on peut utiliser un logo tech (Simple Icons)
+  const detectedTech = detectTechInContent(content);
+  if (detectedTech) {
+    console.log(`   🎯 Technologie détectée: ${detectedTech}, recherche logo...`);
+    const logoResult = searchSimpleIcon(detectedTech);
+    if (logoResult && logoResult.images.length > 0) {
+      const logo = logoResult.images[0];
+      const logoHash = generateImageHash(logo.url);
+      if (!usedHashes.has(logoHash)) {
+        console.log(`   ✅ Logo tech trouvé: ${detectedTech}`);
+        return {
+          success: true,
+          query: detectedTech,
+          images: [logo],
+          selectedImage: logo,
+          imageHash: logoHash,
+          source: 'simple-icons',
+          relevanceScore: 10, // Score max pour logos tech
+          geminiSuggestions: geminiSuggestions
+        };
+      }
+    }
+  }
   
-  // Essayer chaque requête dans l'ordre (déjà optimisé par scoring)
+  // PRIORITÉ 2-5 : Recherche photos via APIs (Pexels > Freepik > Pixabay > Unsplash)
+  const queries = generateSmartQueries(postType, content, geminiSuggestions);
   const candidateImages = [];
   
-  for (const query of queries) {
-    console.log(`   🔍 Essai: "${query.substring(0, 50)}..."`);
-    const result = await searchUnsplash(query);
+  // Essayer chaque requête avec toutes les APIs en cascade
+  for (const query of queries.slice(0, 3)) { // Limiter à 3 meilleures requêtes
+    console.log(`   🔍 Requête: "${query.substring(0, 50)}..."`);
+    
+    // PRIORITÉ 2 : Pexels
+    let result = await searchPexels(query);
+    if (!result || result.images.length === 0) {
+      // PRIORITÉ 3 : Freepik (illustrations vectorielles)
+      result = await searchFreepik(query);
+      if (!result || result.images.length === 0) {
+        // PRIORITÉ 4 : Pixabay
+        result = await searchPixabay(query);
+        if (!result || result.images.length === 0) {
+          // PRIORITÉ 5 : Unsplash (fallback)
+          result = await searchUnsplash(query);
+        }
+      }
+    }
     
     if (result && result.images.length > 0) {
-      console.log(`   ✅ ${result.images.length} image(s) trouvée(s)`);
+      console.log(`   ✅ ${result.images.length} image(s) trouvée(s) via ${result.source}`);
       
       // Évaluer chaque image pour pertinence et disponibilité
       for (const image of result.images) {
@@ -491,9 +817,10 @@ async function findImageForPost(postType, content, usedImages = [], geminiSugges
           image: image,
           imageHash: imageHash,
           query: query,
+          source: result.source,
           relevanceScore: relevanceScore,
           isUsed: isUsed,
-          priority: isUsed ? 0 : relevanceScore // Priorité 0 si utilisée
+          priority: isUsed ? 0 : relevanceScore
         });
       }
     }
@@ -513,14 +840,14 @@ async function findImageForPost(postType, content, usedImages = [], geminiSugges
   const bestUnused = candidateImages.find(c => !c.isUsed && c.relevanceScore >= 1);
   
   if (bestUnused) {
-    console.log(`   ✅ Image non utilisée trouvée avec score de pertinence: ${bestUnused.relevanceScore.toFixed(1)}`);
+    console.log(`   ✅ Image non utilisée trouvée (${bestUnused.source}) avec score: ${bestUnused.relevanceScore.toFixed(1)}`);
     return {
       success: true,
       query: bestUnused.query,
       images: [bestUnused.image],
       selectedImage: bestUnused.image,
       imageHash: bestUnused.imageHash,
-      source: 'unsplash',
+      source: bestUnused.source,
       relevanceScore: bestUnused.relevanceScore,
       geminiSuggestions: geminiSuggestions
     };
@@ -530,14 +857,14 @@ async function findImageForPost(postType, content, usedImages = [], geminiSugges
   const bestUnusedAny = candidateImages.find(c => !c.isUsed);
   
   if (bestUnusedAny) {
-    console.log(`   ⚠️ Image non utilisée trouvée mais pertinence faible (score: ${bestUnusedAny.relevanceScore.toFixed(1)})`);
+    console.log(`   ⚠️ Image non utilisée trouvée (${bestUnusedAny.source}) mais pertinence faible (score: ${bestUnusedAny.relevanceScore.toFixed(1)})`);
     return {
       success: true,
       query: bestUnusedAny.query,
       images: [bestUnusedAny.image],
       selectedImage: bestUnusedAny.image,
       imageHash: bestUnusedAny.imageHash,
-      source: 'unsplash',
+      source: bestUnusedAny.source,
       relevanceScore: bestUnusedAny.relevanceScore,
       warning: 'Pertinence faible mais image non utilisée',
       geminiSuggestions: geminiSuggestions
@@ -548,14 +875,14 @@ async function findImageForPost(postType, content, usedImages = [], geminiSugges
   if (candidateImages.length > 0) {
     const bestOverall = candidateImages[0];
     if (bestOverall.relevanceScore >= 2) {
-      console.log(`   ⚠️ Fallback : Image avec bonne pertinence (score: ${bestOverall.relevanceScore.toFixed(1)}) mais potentiellement déjà utilisée`);
+      console.log(`   ⚠️ Fallback : Image (${bestOverall.source}) avec bonne pertinence (score: ${bestOverall.relevanceScore.toFixed(1)}) mais potentiellement déjà utilisée`);
       return {
         success: true,
         query: bestOverall.query,
         images: [bestOverall.image],
         selectedImage: bestOverall.image,
         imageHash: bestOverall.imageHash,
-        source: 'unsplash',
+        source: bestOverall.source,
         relevanceScore: bestOverall.relevanceScore,
         warning: 'Image potentiellement déjà utilisée mais pertinente',
         geminiSuggestions: geminiSuggestions
@@ -563,10 +890,24 @@ async function findImageForPost(postType, content, usedImages = [], geminiSugges
     }
   }
   
-  // Dernier recours : rechercher une image générique avec la première requête
+  // Dernier recours : rechercher une image générique avec la première requête (toutes APIs)
   console.log('   ⚠️ Aucune image pertinente trouvée, recherche générique...');
   if (queries.length > 0) {
-    const result = await searchUnsplash(queries[0]);
+    // Essayer Pexels
+    let result = await searchPexels(queries[0]);
+    if (!result || result.images.length === 0) {
+      // Essayer Freepik
+      result = await searchFreepik(queries[0]);
+      if (!result || result.images.length === 0) {
+        // Essayer Pixabay
+        result = await searchPixabay(queries[0]);
+        if (!result || result.images.length === 0) {
+          // Essayer Unsplash
+          result = await searchUnsplash(queries[0]);
+        }
+      }
+    }
+    
     if (result && result.images.length > 0) {
       const image = result.images[0];
       return {
@@ -575,7 +916,7 @@ async function findImageForPost(postType, content, usedImages = [], geminiSugges
         images: result.images,
         selectedImage: image,
         imageHash: generateImageHash(image.url),
-        source: 'unsplash',
+        source: result.source,
         relevanceScore: 0,
         warning: 'Image générique (fallback)',
         geminiSuggestions: geminiSuggestions
@@ -610,7 +951,11 @@ async function triggerDownload(downloadUrl) {
 module.exports = {
   findImageForPost,
   generateSmartQueries,
+  searchPexels,
+  searchFreepik,
+  searchPixabay,
   searchUnsplash,
+  searchSimpleIcon,
   triggerDownload,
   extractContentKeywords,
   IMAGE_CONFIG,
