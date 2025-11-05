@@ -692,11 +692,43 @@ async function searchUnsplash(query) {
   return null;
 }
 
-// Fonction pour créer un hash d'image simple
+// Fonction pour créer un hash d'image simple (compatible toutes sources)
 function generateImageHash(imageUrl) {
-  // Extraire l'ID de l'image Unsplash depuis l'URL
-  const match = imageUrl.match(/photo-([a-zA-Z0-9_-]+)/);
-  return match ? match[1] : imageUrl.substring(0, 50);
+  if (!imageUrl) return 'no_url';
+  
+  // Extraire l'ID selon la source
+  // Unsplash: photo-xxxxx
+  let match = imageUrl.match(/photo-([a-zA-Z0-9_-]+)/);
+  if (match) return `unsplash_${match[1]}`;
+  
+  // Pexels: pexels-photo-xxxxx ou /photos/xxxxx
+  match = imageUrl.match(/\/photos\/(\d+)/) || imageUrl.match(/pexels-photo-(\d+)/);
+  if (match) return `pexels_${match[1]}`;
+  
+  // Freepik: /freepik/xxxxx ou id dans l'URL
+  match = imageUrl.match(/\/(\d+)\//) || imageUrl.match(/freepik[_-](\d+)/);
+  if (match) return `freepik_${match[1]}`;
+  
+  // Pixabay: /get/xxxxx ou id dans l'URL
+  match = imageUrl.match(/\/get\/(\d+)/) || imageUrl.match(/pixabay[_-](\d+)/);
+  if (match) return `pixabay_${match[1]}`;
+  
+  // Simple Icons: nom de l'icône
+  match = imageUrl.match(/simpleicons\.org\/([^\/]+)/);
+  if (match) return `simpleicons_${match[1]}`;
+  
+  // Fallback: utiliser une partie de l'URL
+  try {
+    const urlObj = new URL(imageUrl);
+    const pathParts = urlObj.pathname.split('/').filter(p => p);
+    if (pathParts.length > 0) {
+      return pathParts[pathParts.length - 1].substring(0, 50);
+    }
+  } catch (e) {
+    // Si l'URL n'est pas valide, utiliser les premiers caractères
+  }
+  
+  return imageUrl.substring(0, 50).replace(/[^a-zA-Z0-9_-]/g, '_');
 }
 
 // Fonction pour valider la pertinence d'une image avec le contenu

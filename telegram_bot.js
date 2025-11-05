@@ -9,50 +9,95 @@ const { generateAuthenticPost } = require('./generate_authentic_varied_posts.js'
 const fetch = require('node-fetch');
 
 // Fonction pour trouver une image alternative (pour changement de photo)
-// Utilise le système amélioré avec validation de pertinence
+// Utilise le système amélioré multi-APIs avec validation de pertinence
 async function findAlternativeImage(postType, content, geminiSuggestions = [], usedImages = []) {
   try {
     const { findImageForPost } = require('./image_system.js');
     
-    console.log(`🔄 Recherche d'image alternative avec validation de pertinence...`);
+    console.log(`🔄 Recherche d'image alternative avec validation de pertinence (multi-APIs)...`);
     
-    // Utiliser le système amélioré avec validation
+    // Utiliser le système amélioré avec validation (Pexels, Freepik, Pixabay, Unsplash, Simple Icons)
     const imageData = await findImageForPost(postType, content, usedImages, geminiSuggestions);
     
     if (imageData && imageData.success && imageData.selectedImage) {
-      console.log(`   ✅ Image alternative trouvée avec score de pertinence: ${imageData.relevanceScore !== undefined ? imageData.relevanceScore.toFixed(1) : 'N/A'}`);
+      const sourceNames = {
+        'pexels': 'Pexels',
+        'freepik': 'Freepik',
+        'pixabay': 'Pixabay',
+        'unsplash': 'Unsplash',
+        'simple-icons': 'Simple Icons'
+      };
+      
+      const sourceName = sourceNames[imageData.source] || imageData.source || 'Unknown';
+      
+      console.log(`   ✅ Image alternative trouvée via ${sourceName} avec score: ${imageData.relevanceScore !== undefined ? imageData.relevanceScore.toFixed(1) : 'N/A'}`);
       
       return {
         url: imageData.selectedImage.url,
-        description: imageData.selectedImage.description,
-        author: imageData.selectedImage.author,
-        source: 'unsplash',
+        description: imageData.selectedImage.description || 'Image professionnelle',
+        author: imageData.selectedImage.author || 'Unknown',
+        authorUrl: imageData.selectedImage.authorUrl,
+        source: sourceName,
+        sourceCode: imageData.source,
         relevanceScore: imageData.relevanceScore,
         warning: imageData.warning
       };
     }
     
-    // Fallback : utiliser l'ancien système si le nouveau échoue
-    console.log('   ⚠️ Nouveau système échoué, fallback ancien système...');
-    const { generateSmartQueries, searchUnsplash } = require('./image_system.js');
+    // Si aucune image trouvée, essayer avec des requêtes alternatives
+    console.log('   ⚠️ Aucune image trouvée, essai avec requêtes alternatives...');
+    const { generateSmartQueries, searchPexels, searchFreepik, searchPixabay, searchUnsplash } = require('./image_system.js');
     const queries = generateSmartQueries(postType, content, geminiSuggestions);
     
-    for (const query of queries.slice(0, 3)) { // Essayer seulement les 3 meilleures requêtes
-      const result = await searchUnsplash(query);
+    // Essayer avec toutes les APIs en cascade
+    for (const query of queries.slice(0, 2)) { // Essayer 2 meilleures requêtes
+      // Essayer Pexels
+      let result = await searchPexels(query);
+      if (!result || result.images.length === 0) {
+        // Essayer Freepik
+        result = await searchFreepik(query);
+        if (!result || result.images.length === 0) {
+          // Essayer Pixabay
+          result = await searchPixabay(query);
+          if (!result || result.images.length === 0) {
+            // Essayer Unsplash
+            result = await searchUnsplash(query);
+          }
+        }
+      }
+      
       if (result && result.images.length > 0) {
-        const selectedImage = result.images[0];
-        return {
-          url: selectedImage.url,
-          description: selectedImage.description,
-          author: selectedImage.author,
-          source: 'unsplash'
-        };
+        // Chercher une image non utilisée
+        for (const image of result.images) {
+          const imageHash = image.url.substring(0, 50); // Hash simple
+          const isUsed = usedImages.some(used => used.image_hash && used.image_hash === imageHash);
+          
+          if (!isUsed) {
+            const sourceNames = {
+              'pexels': 'Pexels',
+              'freepik': 'Freepik',
+              'pixabay': 'Pixabay',
+              'unsplash': 'Unsplash'
+            };
+            
+            return {
+              url: image.url,
+              description: image.description || 'Image professionnelle',
+              author: image.author || 'Unknown',
+              authorUrl: image.authorUrl,
+              source: sourceNames[result.source] || result.source,
+              sourceCode: result.source
+            };
+          }
+        }
       }
     }
     
+    console.log('   ❌ Aucune image alternative trouvée');
     return null;
   } catch (error) {
     console.error('Erreur recherche image alternative:', error);
+    console.error('Stack:', error.stack);
     return null;
   }
 }
@@ -381,13 +426,35 @@ async function changePhoto(chatId) {
     const newImageData = await findAlternativeImage(postType, content, geminiSuggestions, usedImages);
     
     if (newImageData && newImageData.url) {
+      // Vérifier que l'URL est valide
+      if (!newImageData.url.startsWith('http')) {
+        throw new Error('URL d\'image invalide');
+      }
+      
       // Envoyer le même contenu avec la nouvelle image
-      await sendPhotoWithCaption(chatId, newImageData.url, lastGeneratedPost.json.content);
+      try {
+        await sendPhotoWithCaption(chatId, newImageData.url, lastGeneratedPost.json.content);
+      } catch (photoError) {
+        console.error('Erreur envoi photo:', photoError);
+        // Si l'envoi de photo échoue, envoyer le message avec l'URL
+        await sendMessageWithKeyboard(chatId, 
+          `✅ <b>Nouvelle image trouvée !</b>\n\n` +
+          `🖼️ <b>URL:</b> <a href="${newImageData.url}">Voir l'image</a>\n\n` +
+          `📝 <b>Contenu du post:</b>\n${lastGeneratedPost.json.content}`, 
+          postGeneratedKeyboard
+        );
+      }
       
       let message = `✅ <b>Nouvelle image trouvée !</b>\n\n` +
-        `🖼️ <b>Description:</b> ${newImageData.description}\n` +
-        `👤 <b>Auteur:</b> ${newImageData.author}\n` +
-        `🔗 <b>Source:</b> Unsplash`;
+        `🖼️ <b>Description:</b> ${newImageData.description || 'Image professionnelle'}\n` +
+        `👤 <b>Auteur:</b> ${newImageData.author || 'Unknown'}`;
+      
+      // Ajouter le lien auteur si disponible
+      if (newImageData.authorUrl) {
+        message += `\n🔗 <b>Source:</b> <a href="${newImageData.authorUrl}">${newImageData.source || 'API'}</a>`;
+      } else {
+        message += `\n🔗 <b>Source:</b> ${newImageData.source || 'API'}`;
+      }
       
       // Ajouter le score de pertinence si disponible
       if (newImageData.relevanceScore !== undefined) {
@@ -403,7 +470,14 @@ async function changePhoto(chatId) {
       
       await sendMessageWithKeyboard(chatId, message, postGeneratedKeyboard);
     } else {
-      await sendMessageWithKeyboard(chatId, '❌ <b>Aucune nouvelle image trouvée !</b>\n\nEssayez de générer un nouveau post.', postGeneratedKeyboard);
+      await sendMessageWithKeyboard(chatId, 
+        '❌ <b>Aucune nouvelle image trouvée !</b>\n\n' +
+        '💡 <b>Suggestions:</b>\n' +
+        '• Essayez de générer un nouveau post\n' +
+        '• Vérifiez que les APIs sont configurées\n' +
+        '• Les images peuvent être toutes déjà utilisées', 
+        postGeneratedKeyboard
+      );
     }
     
   } catch (error) {
